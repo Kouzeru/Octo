@@ -1030,7 +1030,7 @@ function runRom(rom) {
   var timeCount = Date.now() + frameTime / 2;
   var stepFrame = _ => {
     var targetTime = Date.now();
-    var frameskipMax = (currentRecording == null)?4:1;
+    var frameskipMax = (currentRecording == null)?1:1;
     for(var k = 0; timeCount < targetTime && k < frameskipMax; timeCount += frameTime, k++){
       for(var z = 0; (z < emulator.tickrate) && (!emulator.waiting); z++) {
         if (!emulator.breakpoint) {
@@ -1059,13 +1059,21 @@ function runRom(rom) {
     if (emulator.halted) return
     runCover.style.backgroundColor = (emulator.st > 0) ? emulator.buzzColor : emulator.quietColor
   }
-  intervalHandle = window.setInterval(stepFrame,frameTime)
+
+  runFrame = _ => {
+    intervalHandle = window.requestAnimationFrame(runFrame)
+    stepFrame();
+  }
+
+  runFrame();
+  // intervalHandle = window.setInterval(stepFrame,frameTime)
 }
 
 function stopRom() {
   emulator.halted = true
   setVisible(runCover, false)
-  window.clearInterval(intervalHandle)
+  //window.clearInterval(intervalHandle)
+  window.cancelAnimationFrame(intervalHandle)
   intervalHandle = null
   clearBreakpoint()
   stopAudio()

@@ -530,11 +530,11 @@ Compiler.prototype.conditional = function(negated) {
 			this.inst(0x4F, 0);                   // if vf == 0 then ...
 		}else{
 			if (this.isRegister()) { 
-				this.fourop(0x5, this.register(), reg, 0x1); 
+				this.fourop(0x9, reg, this.register(), 0x1); 
 			}
 			else{
 				this.inst  (0x60 | compTemp, this.shortValue());
-				this.fourop(0x5, compTemp, reg, 0x1); 
+				this.fourop(0x9, reg, compTemp, 0x1); 
 			}
 		}
 	}
@@ -546,11 +546,11 @@ Compiler.prototype.conditional = function(negated) {
 			this.inst(0x4F, 0);                   // if vf == 0 then ...
 		}else{
 			if (this.isRegister()) { 
-				this.fourop(0x5, reg, this.register(), 0x1); 
+				this.fourop(0x9, this.register(), reg, 0x1); 
 			}
 			else{
 				this.inst  (0x60 | compTemp, this.shortValue());
-				this.fourop(0x5, reg, compTemp, 0x1); 
+				this.fourop(0x9, compTemp, reg, 0x1); 
 			}
 		}
 	}
@@ -562,11 +562,11 @@ Compiler.prototype.conditional = function(negated) {
 			this.inst(0x3F, 0);                   // if vf != 0 then ...
 		}else{
 			if (this.isRegister()) { 
-				this.fourop(0x9, reg, this.register(), 0x1); 
+				this.fourop(0x5, this.register(), reg, 0x1); 
 			}
 			else{
 				this.inst  (0x60 | compTemp, this.shortValue());
-				this.fourop(0x9, reg, compTemp, 0x1); 
+				this.fourop(0x5, compTemp, reg, 0x1); 
 			}
 		}
 	}
@@ -578,11 +578,11 @@ Compiler.prototype.conditional = function(negated) {
 			this.inst(0x3F, 0);                   // if vf != 0 then ...
 		}else{
 			if (this.isRegister()) { 
-				this.fourop(0x9, this.register(), reg, 0x1); 
+				this.fourop(0x5, reg, this.register(), 0x1); 
 			}
 			else{
 				this.inst  (0x60 | compTemp, this.shortValue());
-				this.fourop(0x9, compTemp, reg, 0x1); 
+				this.fourop(0x5, reg, compTemp, 0x1); 
 			}
 		}
 	}

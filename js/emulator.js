@@ -239,18 +239,21 @@ function Emulator() {
 	this.palette            = this.extraColors;
 
 	// interpreter state
-	this.p  = [ // four layer of pixels, as preinitialized array
+	this.p  = [ // four layer of pixels, being preinitialized arrays
 		new Uint8Array(256*128), new Uint8Array(256*128),
 		new Uint8Array(256*128), new Uint8Array(256*128)
 	];
 	this.pan = [ // individual layer panning
 		new Pan(), new Pan(), new Pan(), new Pan(),
 	];
+	this.rom = [];
+	this.ram = new Uint8Array(0x10000);
 	this.m  = [];       // memory (bytes)
 	this.r  = [];       // return stack
 	this.v  = [];       // registers
 	this.pc = 0;        // program counter
-	this.i  = 0;        // index register
+	this.i  = 0;        // ram index register
+	this.j  = 0;        // rom index register
 	this.dt = 0;        // delay timer
 	this.st = 0;        // sound timer
 	this.hires = 0;     // resolution mode
@@ -309,11 +312,12 @@ function Emulator() {
 		for(var i=0;i<16;i++) this.palette.push(this.getColor(i))
 
 		// initialize memory
+		this.rom = _=>+rom.rom[_-0x200];
 		var font = fontsets[this.fontStyle];
 		for(var z = 0, p = this.p; z<256*128;z++) { p[0][z] = p[1][z] = p[2][z] = p[3][z] = 0; }
 		for(var z = 0; z < font.small.length;z++) { this.m[z] = font.small[z]; }
 		for(var z = 0; z < font.big.length;  z++) { this.m[z + font.small.length] = font.big[z]; }
-		for(var z = 0; z < rom.rom.length;   z++) { this.m[0x200+z] = rom.rom[z]; }
+		for(var z = 0; z < rom.rom.length;   z++) { this.m[0x200+z] = this.rom(0x200+z); }
 		for(var z = 0; z < 16;               z++) { this.v[z] = 0; }
 		for(var z = 0; z <  4;               z++) { this.pan[z].x = this.pan[z].y = 0; }
 
@@ -321,6 +325,7 @@ function Emulator() {
 		this.r = [];
 		this.pc = 0x200;
 		this.i  = 0;
+		this.j  = 0;
 		this.dt = 0;
 		this.st = 0;
 		this.hires = false;
@@ -413,6 +418,7 @@ function Emulator() {
 			case 0x15: this.dt = this.v[x]; break;
 			case 0x18: this.buzzTimer(this.st = this.v[x]); break;
 			case 0x1E: this.i = (this.i + this.v[x])&0xFFFF; break;
+			case 0x1F: this.j = (this.j + this.v[x])&0xFFFFFF; break;
 			case 0x29: this.i = ((this.v[x] & 0xF) * 5); break;
 			case 0x30: this.i = ((this.v[x] & 0xF) * 10 + fontsets[this.fontStyle].small.length); break;
 			case 0x33:
@@ -424,6 +430,11 @@ function Emulator() {
 			case 0x39: this.buzzChannel(x); break;
 			case 0x3A: this.buzzPitch(this.v[x]); break;
 			case 0x3B: this.buzzVolume(this.v[x]); break;
+			case 0x40: this.j = this.j & 0xFFFF | this.v[x] << 16; break;
+			case 0x45:
+				for(var z = 0; z <= x; z++) { this.v[z] = this.rom(this.j+z); }
+				if (!this.loadStoreQuirks) { this.j = (this.j+x+1)&0xFFFFFF; }
+				break;
 			case 0x55:
 				for(var z = 0; z <= x; z++) { this.m[this.i+z] = this.v[z]; }
 				if (!this.loadStoreQuirks) { this.i = (this.i+x+1)&0xFFFF; }
@@ -486,10 +497,10 @@ function Emulator() {
 						var pixel = data >> c & 1;
 						collision |= pixel & p[k];
 						switch(this.drawop){
-							case 0: d |= p[k] << c; break;
-							case 1: p[k] |=  pixel; break;
-							case 2: p[k] &= ~pixel; break;
-							case 3: p[k] ^=  pixel; break;
+							case 0:               ; break; // NONE mode
+							case 1: p[k] |=  pixel; break; // OR mode
+							case 2: p[k] &= ~pixel; break; // NIMPY mode
+							case 3: p[k] ^=  pixel; break; // XOR mode
 						}
 						data ^= pixel << c;
 					}
@@ -519,6 +530,19 @@ function Emulator() {
 	}
 
 	this.machine = function(nnn) {
+		if ((nnn & 0x0FFF) == 0x0F00) { 
+			// extra long read-only-memory index
+			this.j = nnn & 0xFF << 16 | this.m[this.pc++] << 8 | this.m[this.pc++];
+			return;
+		}
+
+		if (nnn == 0x00EE) {
+			// return
+			this.pc = this.r.pop();
+			return;
+		}
+
+		
 		if (nnn == 0x00E0) {
 			// clear
 			for(var layer = 0; layer < 4; layer++) {
@@ -527,11 +551,6 @@ function Emulator() {
 					this.p[layer][z] = 0;
 				}
 			}
-			return;
-		}
-		if (nnn == 0x00EE) {
-			// return
-			this.pc = this.r.pop();
 			return;
 		}
 		if ((nnn & 0xFFF0) == 0x00C0) { // scroll down n pixels
@@ -548,15 +567,16 @@ function Emulator() {
 		if ((nnn & 0xFFF0) == 0x00D0) { // scroll up n pixels
 			var n = nnn & 0x00F;
 			var rowSize = 64 << this.hires;
+			var scrSize = rowSize*rowSize/2;
 			for(var layer = 0; layer < 4; layer++) {
 				if ((this.plane & (1 << layer)) == 0) { continue; }
 				for(var z = 0; z < this.p[layer].length; z++) {
-					this.p[layer][z] = (z < (this.p[layer].length - rowSize * n)) ? this.p[layer][z + (rowSize * n)] : 0;
+					this.p[layer][z] = (z < (scrSize - rowSize * n)) ? this.p[layer][z + (rowSize * n)] : 0;
 				}
 			}
 			return;
 		}
-		if (nnn == 0x00F0) { // invert 
+		if (nnn == 0x00E1) { // invert 
 			for(var layer = 0; layer < 4; layer++) {
 				if ((this.plane & (1 << layer)) == 0) { continue; }
 				for(var z = 0; z < this.p[layer].length; z++)
@@ -564,10 +584,21 @@ function Emulator() {
 			}
 			return;
 		}
-		if (nnn == 0x00F1) { this.drawop = 1; return; } //  OR draw mode
-		if (nnn == 0x00F2) { this.drawop = 2; return; } // AND draw mode
-		if (nnn == 0x00F3) { this.drawop = 3; return; } // XOR draw mode
+		if (nnn == 0x00F0) { this.drawop = 0; return; } // GRAB mode
+		if (nnn == 0x00F1) { this.drawop = 1; return; } // OR mode
+		if (nnn == 0x00F2) { this.drawop = 2; return; } // ERASE mode
+		if (nnn == 0x00F3) { this.drawop = 3; return; } // XOR mode
 
+		if (nnn == 0x00F8) { this.scale = 0; return; } // 1x scale mode
+		if (nnn == 0x00F9) { this.scale = 1; return; } // 2x scale mode
+
+		if (nnn == 0x00FA) { // xhres (256x128 mode)
+			this.hires = 2;
+			var lastPlane = this.plane;
+			this.plane = 7; this.machine(0x00E0);
+			this.plane = lastPlane;
+			return;
+		}
 		if (nnn == 0x00FB) { // scroll right 4 pixels
 			var rowSize = 64 << this.hires;
 			for(var layer = 0; layer < 4; layer++) {
@@ -611,16 +642,6 @@ function Emulator() {
 			this.plane = lastPlane;
 			return;
 		}
-		if (nnn == 0x0100) { // xhres (256x128 mode)
-			this.hires = 2;
-			var lastPlane = this.plane;
-			this.plane = 7; this.machine(0x00E0);
-			this.plane = lastPlane;
-			return;
-		}
-		if (nnn == 0x0101) { this.scale = 0; return; } // 1x scale mode
-		if (nnn == 0x0102) { this.scale = 1; return; } // 2x scale mode
-		if (nnn == 0x0103) { this.scale = 2; return; } // 4x scale mode
 		if (nnn == 0x0000) { this.halted = true; return; }
 		haltBreakpoint("machine code "+nnn.toString(16).toUpperCase().padStart(4,0)+" is not supported.");
 	}
@@ -648,9 +669,9 @@ function Emulator() {
 
 		if (o == 0x5 && n != 0) {
 			if (n == 1) {
-				if (this.v[x] >= this.v[y]) { this.skip(); }
-					return;
-				}		
+				if (this.v[x] > this.v[y]) { this.skip(); }
+				return;
+			}		
 			else if (n == 2) {
 				// save range
 				var dist = Math.abs(x - y);
@@ -671,9 +692,23 @@ function Emulator() {
 		}
 		if (o == 0x9 && n != 0) {
 			if (n == 1) {
-				if (this.v[x] < this.v[y]) { this.skip(); }
-					return;
-				}		
+				if (this.v[x] <= this.v[y]) { this.skip(); }
+				return;
+			}
+			else if (n == 2) {
+				// write nn+1 bytes of rom@j to ram@i
+				let len = nnn >> 4;
+				for(var z = 0; z <= len; z++) { this.m[this.i+z] = this.rom(this.j+z) };
+				this.i = this.i + z & 0xFFFF;
+				this.j = this.j + z & 0xFFFFFF;
+			}	
+			else if (n == 3) {
+				// read range
+				var dist = Math.abs(x - y);
+				if (x < y) { for(var z = 0; z <= dist; z++) { this.v[x+z] = this.rom(this.j+z); }}
+				else       { for(var z = 0; z <= dist; z++) { this.v[x-z] = this.rom(this.j+z); }}
+				return;
+			}	
 			else 
 			haltBreakpoint("unknown opcode "+op.toString(16).toUpperCase());
 		}

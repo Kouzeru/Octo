@@ -49,7 +49,7 @@ function reverseBits(bytes, n){
 
 function playBytes(pattern, pitch){
 	if (audioSetup(emulator)) {
-		playPattern(0.5,pattern,pitch)
+		playPattern(0.5,sampleBuffer(pattern),pitch)
 	}
 	else {
 		document.getElementById('audio-error').innerHTML = 'Your browser does not support HTML5 Audio!'
