@@ -193,10 +193,17 @@ document.getElementById('audio-generate').onclick = _ => {
 function audioPreview(){ playBytes(audioPatternData, +audioPitch.value) }
 function tonePreview(){ playBytes(audioTone(), +audioPitch.value) }
 
+const audioVolume = document.getElementById('audio-gain')
+audioVolume.onchange = _ => {
+	emulator.audioVolume=Math.max(0,Math.min(+audioVolume.value))
+	saveLocalOptions()
+}
+
 function updateAudio() {
 	audioPatternEditor.refresh()
-	drawBytes(audioPatternCanvas, audioPatternData)
+	drawBytes(audioPatternCanvas, readPattern(audioPatternEditor))
 	drawBytes(audioToneCanvas, audioTone())
+	audioVolume.value=emulator.audioVolume
 	updatePiano()
 }
 
